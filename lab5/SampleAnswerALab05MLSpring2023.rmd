@@ -1,0 +1,286 @@
+---
+title: "EPPS6326 & GISC6323: Unsupervised Machine-Learning with Geo-Referenced Data"
+author: "Michael Tiefelsdorf & Yalin Yang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  pdf_document:
+    toc: yes
+vignette: |
+ %\VignetteIndexEntry{DallasMarketAreas} 
+ %\VignetteEncoding{UTF-8}
+ %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r message=FALSE, warning=FALSE}
+library(TexMix)    ## For mapping functions
+library(sp);library(maptools)
+library(spdep);library(ClustGeo)
+
+#knitr::purl("E:\\Lectures2023\\GISC6323EPPS6326\\Labs\\Lab05\\SampleAnswerALab05MLSpring2023.Rmd", 
+#             documentation = 0)
+
+setwd("E:\\Lectures2023\\GISC6323EPPS6326\\Labs\\Lab05")
+
+## Get neighboring state as spatial reference frame
+neig.shp <- rgdal::readOGR(dsn="TXCnty2021", layer = "TXNeighbors",
+                             integer64 = "allow.loss", stringsAsFactors=T)
+
+## Get interstate layer for spatial orientation
+interState.shp <- rgdal::readOGR(dsn="TXCnty2021", layer = "InterStateHwy",
+                                 integer64 = "allow.loss", stringsAsFactors=T)
+
+## Get polygons of TX counties
+county.shp <- rgdal::readOGR(dsn="TXCnty2021", layer = "TXCnty2021",
+                            integer64 = "allow.loss", stringsAsFactors=T)
+```
+
+# General modelling strategy
+
+1.  Select those *features* which characterized the diversity among the
+    spatial objects and that cover the objectives of the cluster
+    analysis. The distribution of a selected variable should be
+    outstandingly different at least for one cluster from the other
+    clusters. See the section "Inspect feature profiles for each
+    cluster". Are two variable profiles similar across all clusters then
+    these variables are redundant with respect to the cluster analysis
+    and one variable should be removed from the analysis.
+2.  Select that *spatial dissimilarity metric* which leads to an
+    interpretable regionalization without undermining the cluster
+    homogeneities.
+3.  First, identify the *number of clusters* $K$ while ignoring the
+    regionalization, i.e., $\alpha=0$, by studying the dendogram and
+    systematically increasing the number of clusters. Adopt that number
+    of clusters which leads to interpretable results.
+4.  Second, add *regionalization* to the optimal number of clusters by
+    systematically increasing the mixture parameter $\alpha=0$. Select
+    that solution, which reveals an interpretable regionalization and
+    the profiles of clusters with respect to their characteristics. If
+    necessary, some regions can be spatially fragmented.
+
+Homogeneity within the clusters and their unique profiles are more
+important than unfragmented regionalization.
+
+# Prepare the feature similarity matrix
+
+The selected features come from 5 logical groups of variables. These are
+intended to describe the demographic, socio-economic, political,
+cultural and infrastructure profile of each county.
+
+**[a] cultural:** RELIGADHER and DISTMEX
+
+**[b] political:** TRUMPVOT16 (%vote to Trump) and TURNOUT16
+
+**[c] socio-economic:** UNINSURED, COLLEGEDEG, POVERTY and INCOME,
+
+**[d] demographic:** MEDAGE, PARTBLACK, HISPORG and BIR15TO50
+
+**[e] residential:** BNEW (Percent of housing units built after 2000),
+POPDENSE, MEDVALHOME and POPCHG
+
+Note: the population density `POPDENSE` should not be log-transformed.
+Only untransformed will it be able to distinguish between rural,
+sub-urban and metropolitan counties.
+
+```{r}
+## Exclude Loving County
+county.shp <- county.shp[county.shp$NAME_x!="Loving", ]
+
+Vars <- county.shp@data
+Vars <- transform(Vars,
+  RELIGADHER = as.numeric(RELIGADHER),
+  TRUMPVOT16 = TRUMPVOT16/TOTALVOT16,
+  BNEW = B2000PCT+B2010PCT
+)
+
+varKeep <- c("RELIGADHER","DISTMEX", "TRUMPVOT16", "TURNOUT16",
+             "UNINSURED", "COLLEGEDEG", "POVERTY", "INCOME",
+             "MEDAGE", "PARTBLACK", "HISPORG", "BIR15TO50",
+             "POPDENSE", "POPCHG", "BNEW", "MEDVALHOME")
+
+xVars <- Vars[, varKeep]
+row.names(xVars) <- 1:nrow(xVars)
+featDist <- dist(scale(xVars))
+```
+
+# Definition of the spatial dissimilarity metric
+
+This section extracts from the counties their underlying dissimilarity
+metrics. The three competing metrics are:
+
+-   Basic spatial adjacency among the counties
+-   Spherical distances among the counties
+-   Shortest path distances among the counties
+
+## Spatial topology
+
+```{r fig.height=7, fig.width=7}
+county.bbox <- bbox(county.shp)                # county bounding box for map region
+county.centroid <- coordinates(county.shp)     # Get county centroids
+
+##
+## Get spatial structure distance matrices
+##
+nb <- spdep::poly2nb(county.shp, queen=F)      # extract first order neighbors links
+B <- spdep::nb2mat(nb, style="B")              # convert neighbor list to binary matrix
+plot(county.shp, col="palegreen3", border=grey(0.9), axes=T) # map topology
+plot(nb, coords=coordinates(county.shp), pch=19, cex=0.1, col="blue", add=T)
+title("Spatial Neighbors Links among TX County") 
+topoDist <- 1-B; diag(topoDist) <- 0          # convert into dissimilarity
+topoDist <- as.dist(topoDist)                 # convert into distance object
+```
+
+## Shortest path distance
+
+```{r}
+##
+## Get steps distance from topology
+##
+BNa <- ifelse(B==0,NA,B)                      # recode 0's to NA's
+allPath <- e1071::allShortestPaths(BNa)       # calculate the shortest path among all nodes
+pathDist <- as.dist(allPath$length)           # number of steps from origin to destination node
+```
+
+## Spherical distance
+
+```{r}
+sphDist <- sp::spDists(county.shp, longlat=T)   # spherical distance matrix among tracts in km
+sphDist <- as.dist(sphDist)
+```
+
+In this study the spherical distance among the counties, i.e.,
+`sphDist`, lead to the most interpretable results. The clusters became
+mostly spatially connected based on their topological relationship.
+Experimentation with other spatial distance matrices, i.e., `pathDist`
+or `topoDist`, lead to less desirable outcomes with higher regional
+fragmentation and feature heterogeneity within the derived clusters.
+
+# Evaluate mixture of feature and spatial dissimilarity
+
+Through experimentation, setting the number of clusters to $K=7$ gives
+reasonable and interpretable results with respect to both the
+homogeneity within clusters and visual interpretation. The clusters
+mostly were already spatially grouped. In addition, setting the spatial
+mixture parameter $\alpha=0.1$ maintained the cluster homogeneity while
+enhancing the regionalization.
+
+```{r fig.height=9, fig.width=9}
+K <- 7                             # Number of distinct clusters
+range.alpha <- seq(0, 1, by=0.1)   # Evaluation range
+cr <- choicealpha(featDist, sphDist, range.alpha, K, graph=TRUE)
+tree <- hclustgeo(featDist, sphDist, alpha=0.1)
+plot(tree, hang=-1)
+rect.hclust(tree, k=K)
+```
+
+```{r ig.height=7, fig.width=9}
+neighClus <- as.factor(cutree(tree, K))        # Determine cluster membership
+## Label clusters
+neighClus <- factor(neighClus, labels=c("Historic Black", "Religious", "Affluent Rural", 
+                                        "Conservative", "Hispanic", "Metropolitan", "Suburban") )
+table(neighClus)
+plot(table(neighClus))                         # number of counties in each cluster
+```
+
+# Map Results
+
+```{r fig.height=9, fig.width=9}
+plot(neig.shp, axes=T, col=grey(0.9),                  # first background (only for final maps)
+     border="white", bg="lightblue",
+     xlim=county.bbox[1,], ylim=county.bbox[2,])        
+
+mapColorQual(neighClus, county.shp, 
+             map.title ="Spatially Constrained Cluster Analysis",
+             legend.title="Cluster\nId.", legend.cex=0.9, add=T)
+
+plot(interState.shp, col="tomato4", lwd=1, add=T)      # insert road network for orientation
+
+```
+
+# Cluster interpretation
+
+Each cluster has a unique feature profile and none of the feature
+distributions for the clusters are identical.
+
+## Feature profiles for each cluster
+
+```{r fig.height=12, fig.width=9}
+plotBoxesByFactor(xVars[,1:4], neighClus, ncol=1, zTrans=T, varwidth=F)
+plotBoxesByFactor(xVars[,5:8], neighClus, ncol=1, zTrans=T, varwidth=F)
+plotBoxesByFactor(xVars[,9:12], neighClus, ncol=1, zTrans=T, varwidth=F)
+plotBoxesByFactor(xVars[,13:16], neighClus, ncol=1, zTrans=T, varwidth=F)
+```
+
+## Numeric cluster description
+
+```{r }
+options(digits=2)
+by(scale(xVars), neighClus, colMeans)
+```
+
+## Heatmap of features and counties
+
+```{r fig.width=9, fig.height=9}
+library("RColorBrewer")
+col <- rev(colorRampPalette(brewer.pal(10, "RdYlBu"))(64))
+
+## Calculate hclust dendrograms
+hclust_rows <- as.dendrogram(tree)  
+hclust_cols <- as.dendrogram(hclust(dist(t(scale(xVars)))))
+
+## Draw heatmap with hclust dendrograms
+heatmap(as.matrix(scale(xVars)), col=col,                                
+        Rowv = hclust_rows, Colv = hclust_cols)
+```
+
+## Cluster and region descriptions
+
+-   **Hispanic**: This cluster is located predominately along the Rio
+    Grande Valley and the Western Mexican border with the highest
+    concentration of the Hispanic population. This cluster is quite
+    distinct: lower republican votes and election participation, higher
+    uninsured and poverty rates, a younger population with a higher
+    birth rate and otherwise being economically depressed.
+-   **Affluent Rural**: This cluster is overall around average for rural
+    counties. However, it is above average for many economic measures.
+    Counties in the cluster are predominately close to urban centers. In
+    West Texas counties in the cluster are close to predominately white
+    religious and republican counties.
+-   **Religious**: Overall the religious affiliation in this cluster is
+    high which is followed by a high republican orientation. Otherwise,
+    counties in this cluster are about average with a slightly lower
+    African-American population. This cluster stretches all the way down
+    from the Pan-Handle to the Mexican border.
+-   **Conservative**: Similar to the *religious* cluster with the
+    difference that the republican affiliation is even higher, a lower
+    Hispanic and African-American population, an older population and
+    overall being economically better situated. Counties in this cluster
+    don't tend to form regions and they are mostly embedded in the
+    *religious* cluster.
+-   **Suburban**: Counties in this cluster are adjacent to
+    *metropolitan* counties, but with a lower population density than
+    the *metropolitan* counties. There is a below average religious and
+    Republican affiliation, highest economic and education status, lower
+    birth rates but younger population, and newer, more expensive homes.
+    Its population is on average increasing due to immigration.
+-   **Historic Black**: Counties in the rural cluster have a higher
+    fraction of African-Americans but lower Hispanics population. The
+    educational attainment is below average. The republican affiliation
+    is slightly above averages. Counties in this cluster are
+    concentrated in East Texas. The higher numbers of African-American
+    population has historic roots.
+-   **Metropolitan**: The 4 counties in this cluster are Dallas and Fort
+    Worth, Houston and San Antonio. These counties have the highest
+    population density. Its population on average is younger and
+    increasing due to immigration. Homes are newer and more expensive. A
+    larger proportion of African-Americans and Hispanics are living in
+    these counties, which makes the economic profile mixed, but the
+    educational attainment is higher. The political orientation of
+    population in these metropolitan counties is more democratically
+    oriented. Interestingly, ElPaso is not included in this cluster due
+    to its specific Hispanic profile.

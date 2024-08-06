@@ -1,0 +1,382 @@
+---
+title: "Lab03: Classification and Regression Prediction Models"
+author: "Sample Answer Lab03"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, setup, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(
+  error = TRUE,         
+  fig.align = 'center', 
+  out.width = '60%',    
+  warning = FALSE,      
+  message = FALSE,      
+  size = 'small',       
+  tidy = FALSE         
+)
+```
+
+::: {.task .heading style="color: green;"}
+# Part 1: Classification trees [6 points]
+
+```{r P1, warning=FALSE}
+library(tree);library(pROC); library(caret)
+mushrooms <- read.csv("mushrooms.csv",stringsAsFactors = TRUE)
+mushrooms$veil_type <- NULL
+set.seed(123)
+split <- rsample::initial_split(mushrooms, prop=0.66, strata="type")
+mushrooms.train <- rsample::training(split)
+mushrooms.test <- rsample::testing(split)
+```
+## Task 1
+Build a **classification tree**, properly prune the tree, and interpret the pruned tree. Show both the pruned and unpruned trees. Use the **training** data-frame. [1 points] 
+:::
+
+```{r T1}
+full.tree <- tree(type ~ ., mushrooms.train)
+summary(full.tree)
+```
+It is seen that the misclassification error rate is almost negligible with 5 terminal modes.
+
+```{r T1.1, fig.height=4, fig.width=6}
+plot(full.tree)
+text(full.tree, pretty = 0)
+```
+
+Now, we find the best *cut-off* point by cross-validation:
+
+```{r T1.2}
+set.seed(123)
+cv.tree <- cv.tree(full.tree, FUN = prune.misclass)
+cv.tree$size
+cv.tree$dev
+par(mfrow = c(1, 2))
+plot(cv.tree$size, cv.tree$dev, type = "b")
+abline(v = cv.tree$size[which.min(cv.tree$dev)],lty=2,col = "red")
+plot(cv.tree$k, cv.tree$dev, type = "b")
+abline(v = cv.tree$k[which.max(cv.tree$dev)],lty=2,col = "red")
+```
+
+After pruning the classification tree, it is seen that the unpruned tree, with 5 terminal nodes, has the minimum deviance value of 6. 
+
+```{r T1.3, fig.height=4, fig.width=6, warning=FALSE}
+prune.tree <- prune.misclass(full.tree, best = 5)
+plot(prune.tree)
+text(prune.tree, pretty = 0)
+```
+
+check the performance on **testing** data
+
+```{r T1.4, warning=FALSE}
+tree.pred <- predict(prune.tree, newdata = mushrooms.test,type = "class")
+caret::confusionMatrix(tree.pred, mushrooms.test$type, positive="poisonous")
+```
+
+
+::: {.task .heading style="color: green;"}
+## Task 2
+Build a predictive model using the **randomForest** function with bagging based on the parameter `ntree`. Evaluate the relevance of the features. Use the *training* data-frame. [1 point]
+:::
+
+
+```{r T2.1, warning=FALSE}
+library(randomForest)
+set.seed(1)
+rf.mod.1 <- randomForest(type ~ ., data = mushrooms.train, ntree=500, mtry = 21, importance = TRUE)
+rf.mod.1
+```
+
+```{r T2.2, fig.height=5, fig.width=9}
+varImpPlot(rf.mod.1)
+```
+
+The higher the value of the Mean Decrease Accuracy and Mean Decrease Gini in the variable importance plot, the higher the variable is in the model. So, from the plot we can say that `odor`,`spore color` and `fill color` are the most important variables in predicting edibility in the mushroom data set. 
+
+check the performance on **testing** data
+
+```{r T2.3}
+yhat <- predict(rf.mod.1, newdata = mushrooms.test)
+caret::confusionMatrix(yhat, mushrooms.test$type, positive="poisonous")
+```
+
+
+::: {.task .heading style="color: green;"}
+## Task 3 
+Build a predictive random forest model using the **randomForest** function and find the optimal hyper-parameter `mtry` for the number of features explored at each steps. Use the *training* data-frame. [1 point]
+:::
+
+`tuneRF` is a built-in function of `randomforest` library for tuning parameters. But for demonstrating purpose, we do the searching in the hard way.
+
+```{r 3.1, message=FALSE, warning=FALSE}
+library(randomForest)
+set.seed(1)
+# tryCatch(
+#   expr = {
+#       bestmtry <- tuneRF(mushrooms[,-1][train,],mushrooms$type[train],stepFactor = 1.5,ntreeTry = 100,plot=TRUE,doBest = TRUE)
+#   },
+#   error = function(e){
+#     print(e)
+#     print("Accuracy is 100%, can not improve")
+#   }
+# )
+
+mtry_lst <- c(1:20)
+mean.error.rate <- c()
+class.error.n <- c()
+
+for(mtry in mtry_lst){
+  rf.mod.temp <- randomForest(type ~ ., data = mushrooms.train, ntree=500, mtry = mtry)
+  mean.error.rate <- c(mean.error.rate,mean(rf.mod.temp$err.rate[,1]))
+  class.error.n <- c(class.error.n,sum(rf.mod.temp$confusion[,3]))
+}
+data.frame(mtry_lst,mean.error.rate,class.error.n)
+
+```
+The smallest optimal parameter mtry for the number of features in the training dataset is 2. 
+
+```{r 3.2}
+set.seed(1)
+rf.mod.2 <- randomForest(type ~ ., data = mushrooms.train, ntree=500,mtry = 2, importance = TRUE)
+yhat <- predict(rf.mod.2, newdata = mushrooms.test)
+caret::confusionMatrix(yhat, mushrooms.test$type, positive="poisonous")
+```
+::: {.task .heading style="color: green;"} 
+### Task 3 Excursion: Identify `mtry` with `caret`
+:::
+```{r caretT3, message=FALSE, warning=FALSE}
+library(doParallel)
+nofThreads <- detectCores(logical=TRUE)   # Number of available cores including virtual
+cl <- makeCluster(nofThreads)             # Initialize clusters
+registerDoParallel(cl)                    # Activate clusters - may trigger firewall warning
+
+library(caret)
+## Control statement
+ctrl <- trainControl(method="cv", number=10, classProbs=TRUE,
+                     selectionFunction="best")
+## Search grid
+grid <- data.frame(mtry =c(1,2,3,4,5,6,7,8,9,10,11,12))
+
+## Tune model
+rfCaret <- train(type ~ ., data = mushrooms.train,
+                 method="rf",
+                 metric="ROC",
+                 trControl=ctrl,
+                 tuneGrid=grid)
+
+ggplot2::ggplot(rfCaret)
+## Computation time
+rfCaret$times$everything
+
+## Variable importance
+varImp(rfCaret)
+
+## Prediction
+rfPredict <- predict(rfCaret, newdata=mushrooms.test)
+
+## Confusion matrix
+confusionMatrix(rfPredict, mushrooms.test$type, positive="poisonous")
+
+## Turn clusters off to free resources
+stopCluster(cl)           
+```
+
+::: {.task .heading style="color: green;"}  
+## Task 4
+
+Build a predictive boosted tree model using the function `gbm` and find the optimal depth hyper-parameter **intraction.depth**. Use the *training* data-frame. [1 point]
+:::
+
+`train` in caret library is commonly used for parameter choosing. But for demonstrating purpose, we use for loop here.
+
+```{r 4.1}
+library(gbm)
+# tunegrid <- expand.grid(interaction.depth=c(1:5),n.trees=500,shrinkage = 0.1,n.minobsinnode=10)
+# system.time(
+#   m <- train(type~. , data=mushrooms[train,], method="gbm", metric="Accuracy",tuneGrid=tunegrid)
+# )
+# plot(m)
+
+interaction.depth.lst <- c(1:5)
+mushrooms.train.boost <- mushrooms.train
+mushrooms.train.boost$type <- ifelse(mushrooms.train.boost$type == "poisonous",1,0)
+boost.err <- c()
+for(interaction.depth in interaction.depth.lst){
+  mod.temp <- gbm(type~. , data= mushrooms.train.boost,n.trees = 500,distribution ="bernoulli" ,
+                  shrinkage = 0.1,interaction.depth = interaction.depth)
+  prob <- predict(mod.temp,newdata= mushrooms.test,n.trees = 500)
+  yhat.boost <- as.factor(ifelse(prob>0.5,"poisonous","edible"))
+  boost.err <- c(boost.err,sum(yhat.boost != mushrooms.test$type))
+}
+
+data.frame(boost.err,interaction.depth.lst)
+
+```
+
+all those model give us 100% prediction accuracy.So we just use the most common value: `interaction.depth = 2`
+
+```{r 4.2}
+set.seed(1)
+mushrooms.test.boost <- mushrooms.test
+mushrooms.test.boost$type <- ifelse(mushrooms.test.boost$type == "poisonous",1,0)
+boost.mod <- gbm(type~. , data = mushrooms.train.boost,n.trees = 500,distribution ="bernoulli" ,shrinkage = 0.1,interaction.depth = 2)
+prob <- predict(boost.mod,newdata= mushrooms.test.boost,n.trees = 500)
+yhat.boost <- as.factor(ifelse(prob>0.5,"poisonous","edible"))
+caret::confusionMatrix(yhat.boost, mushrooms.test$type, positive="poisonous")
+```
+
+
+::: {.task .heading style="color: green;"}
+## Task 5
+
+Compare the models from tasks 1 to 5 for the test data-frame by using the functions their **ROC** curves, the **auc** statistic, the **CrossTable** and prediction error rate. Justify which model you would use to avoid mushroom poisoning. [2 points]
+:::
+
+```{r 5.1, fig.height=6, fig.width=9}
+par(mfrow = c(3,2))
+mushrooms.test$tree.pred <- tree.pred
+rocTree <- roc(mushrooms.test$type~as.numeric(mushrooms.test$tree.pred))
+plot(rocTree,col="blue",main = paste0("AUC of pruned tree:",auc(rocTree)), lwd=2, legacy.axes=TRUE)
+prob <- predict(rf.mod.1, newdata = mushrooms.test,type = "prob")[,2]
+roc.rf <- roc(mushrooms.test$type~prob)
+plot(roc.rf,col="blue",main = paste0("AUC of randomforest model:",auc(roc.rf)), lwd=2, legacy.axes=TRUE)
+prob <- predict(rf.mod.2, newdata = mushrooms.test,type = "prob")[,2]
+roc.rf.best <- roc(mushrooms.test$type~prob)
+plot(roc.rf.best,col="blue",main = paste0("AUC of randomforest model with tuning:",auc(roc.rf)), lwd=2, legacy.axes=TRUE)
+roc.boost <- roc(mushrooms.test$type~prob)
+plot(roc.boost,col="blue",main = paste0("AUC of boost tree:",auc(roc.rf)), lwd=2, legacy.axes=TRUE)
+```
+**Comment:** Except the pruned tree, all models have 100% accuracy for prediction. Hence, any of the model can be used in this case. 
+
+::: {.task .heading style="color: green;"}
+# Part 2
+```{r P2}
+redwine <- read.csv("redwines.csv",stringsAsFactors = TRUE)
+set.seed(123)
+split <- rsample::initial_split(redwine, prop=0.66, strata="quality")
+redwine.train <- rsample::training(split)
+redwine.test <- rsample::testing(split)
+```
+
+## Task 6
+Build a pruned regression tree with all feature variables and interpret the pruned tree. Show the pruned and unpruned trees. For model calibration use the training data-frame. Calculate the model fit for the **test** data-frame. [1 point]
+:::
+
+```{r T6}
+full.tree.reg <- tree(quality ~ ., redwine.train)
+summary(full.tree.reg)
+```
+```{r T6.1, fig.height=5, fig.width=8}
+plot(full.tree.reg)
+text(full.tree.reg, pretty = 0)
+```
+check the performance of full decision tree
+
+```{r T6.2}
+full.tree.y <- predict(full.tree.reg,newdata = redwine.test)
+(full.tree.err <- mean ((full.tree.y - redwine.test$quality)^2))
+```
+
+find the best *cut-off* point
+
+```{r T6.4}
+set.seed(123)
+cv.tree.reg <- cv.tree(full.tree.reg)
+par(mfrow = c(1, 2))
+plot(cv.tree.reg$size, cv.tree.reg$dev, type = "b")
+abline(v = cv.tree.reg$size[which.min(cv.tree.reg$dev)],lty=2,col = "red")
+plot(cv.tree.reg$k, cv.tree.reg$dev, type = "b")
+abline(v = cv.tree.reg$k[which.max(cv.tree.reg$dev)],lty=2,col = "red")
+```
+full size tree gives us the best prediction, so we do not need to prune it.
+
+```{r T6.5}
+prune.tree.reg <- prune.tree(full.tree.reg, best = 9)
+plot(prune.tree.reg)
+text(prune.tree.reg, pretty = 0)
+```
+check the performance on **testing** data and record it
+
+```{r T6.6}
+prune.tree.y <- predict(prune.tree.reg,newdata = redwine.test)
+(pruned.tree.err <- mean((prune.tree.y - redwine.test$quality)^2))
+
+```
+::: {.task .heading style="color: green;"}
+## Task 7
+
+Calibrate for the *training* data-frame with all feature variables a random forest model and identify its optimal hyper-parameters **ntree** and  **mtry**. Evaluate the variable importance. Calculate the model fit for the **test** data-frame. [1 point]
+:::
+
+Again, for demonstrating, use for-loop here.
+
+```{r T7, message=FALSE, warning=FALSE}
+set.seed(1)
+# bestmtry <- tuneRF(redwine[,-12][train,],redwine$quality[train],improve = 1e-5,stepFactor = 1.5,ntreeTry = 500,plot=TRUE,doBest = TRUE)
+mtry_lst <- c(1:(ncol(redwine.train)-1))
+rf.mse.lst <- c()
+rf.mod.lst <- list()
+for(mtry in mtry_lst){
+  rf.temp <- randomForest(quality ~ ., data = redwine.train, mtry = mtry)
+  rf.y <- predict(rf.temp,newdata =as.matrix(redwine.test[,-12]))
+  rf.mse.lst <- c(rf.mse.lst,mean((rf.y - redwine.test$quality)^2))
+}
+data.frame(mtry_lst,rf.mse.lst)
+
+```
+
+`mtry = 4` gives us the best prediction, record its perform 
+
+```{r T7.2}
+n.trees.lst = seq(from = 100, to = 1000, by = 100)
+ntree.err.lst <- c()
+for(ntrees in n.trees.lst){
+  mod.trees <- randomForest(quality~. , data= redwine.train,n.trees = ntrees)
+  ntree.pred <- predict(mod.trees,newdata= redwine.test)
+  ntree.err <- mean((redwine.test$quality-ntree.pred)^2)
+  ntree.err.lst <- c(ntree.err.lst,ntree.err)
+}
+
+data.frame(ntree.err.lst, n.trees.lst)
+
+```
+
+`ntree = 500` gives us the best prediction.
+
+```{r T7.3}
+random.mod <- randomForest(quality~. , data= redwine.train,n.trees = 500, mtry = 4)
+random.pred <- predict(random.mod,newdata= redwine.test)
+random.err <- mean((redwine.test$quality-random.pred)^2)
+print(random.err)
+```
+```{r T7.4}
+varImpPlot(random.mod)
+```
+
+::: {.task .heading style="color: green;"}
+## Task 8
+
+Calibrate for the **training** data-frame with all feature variables a boosted model and identify its optimal depth hyper-parameter *interaction.depth*. Calculate the model fit for the *test* data-frame. [1 point]
+:::
+
+Again, for demonstrating, use for-loop here.
+
+```{r T8, message=FALSE, warning=FALSE}
+interaction.depth.lst <- c(1:5)
+boost.err.lst <- c()
+for(interaction.depth in interaction.depth.lst){
+  mod.temp <- gbm(quality~. , data= redwine.train,n.trees = 500,distribution ="gaussian" ,shrinkage = 0.1,interaction.depth = interaction.depth)
+  boost.y <- predict(mod.temp,newdata= redwine.test,n.trees = 500)
+  boost.err <- mean((redwine.test$quality-boost.y)^2)
+  boost.err.lst <- c(boost.err.lst,boost.err)
+}
+
+data.frame(boost.err.lst,interaction.depth.lst)
+```
+`interaction.depth = 3` gives us the best prediction, record it
+
+```{r T8.2}
+(boost.err.lst[interaction.depth.lst == 3])
+```
+
+

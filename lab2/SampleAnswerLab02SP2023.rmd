@@ -1,0 +1,431 @@
+---
+title: "Lab02: Subset Selection, Shrinkage Methods and Dimension Reduction with Cross-validation"
+author: "Sample Answer Lab02"
+
+output:
+  html_document
+---
+
+```{r, setup, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(
+  error = TRUE,         
+  fig.align = 'center', 
+  out.width = '60%',    
+  warning = FALSE,      
+  message = FALSE,      
+  size = 'small',       
+  tidy = FALSE         
+)
+```
+
+::: {.task .heading style="color: green;"}
+## Task 1
+Behavior of Stepwise Regression and Lasso with Simulated Data (5 points)
+:::
+
+```{r warning=FALSE}
+library(leaps)
+```
+::: {.task .heading style="color: green;"}
+### Task 1 a
+Use the `rnorm()` function to generate a predictor X of length `n = 100`, as well as a noise vector $\epsilon$ of length `n = 100`.
+:::
+```{r T1a, warning=FALSE}
+set.seed(123)
+x <- rnorm(n = 100)
+e <- rnorm(n = 100)
+```
+
+::: {.task .heading style="color: green;"}
+### Task 1 b
+Generate a response vector Y of length `n = 100` according to the model
+$Y=\beta_0+\beta_1\cdot X+\beta_2\cdot X^2+\beta_3 \cdot X^3+\epsilon$
+where $\beta_0=1,\beta_1=1,\beta_2=1, \mbox{and }\beta_3=1$ are constants of your choice.
+:::
+```{r T1b}
+y = 1 + 1 * x + 1 * x^2 + 1 * x^3 + e
+y[1:5]
+```
+::: {.task .heading style="color: green;"}
+### Task 1 c
+Use the `regsubsets()` function to perform best subset selection in order to choose the best model containing the predictors $X, X^2,...,X^{10}$. What is the best model obtained according to $C_p$, $BIC$, and adjusted $R^2$? Show some plots to provide evidence for your answer, and report the coefficients of the best model obtained. Note you will need to use the `data.frame()` function to create a single data set containing both X and Y .
+:::
+```{r T1c}
+df <- data.frame(y = y)
+df <- cbind(df, poly(x, 10, raw = T))
+```
+
+```{r T1cc, warning=FALSE}
+model.subset <- regsubsets(y ~ ., data = df, nvmax = 10)
+model.summary <- summary(model.subset)
+model.summary
+```
+
+Check $C_p$, BIC, and adjusted $R^2$
+
+```{r T1ccc, warning=FALSE}
+data.frame(cbind(nv=1:10,cp = model.summary$cp,BIC = model.summary$bic,R_squared = model.summary$adjr2))
+
+```
+
+Makes the plot, and adjusted $R^2$ indicates model 7 (with 7 independent variables) is the best one.
+
+```{r T1cccc, fig.height=8, fig.width=10, warning=FALSE}
+par(mfrow = c(2,2))
+## Adjusted R Squared
+plot(model.summary$adjr2 , xlab = " Number of Variables ",ylab = " Adjusted RSq ", type = "l")
+rsq_max <- which.max(model.summary$adjr2)
+print(rsq_max)
+points (rsq_max, model.summary$adjr2[rsq_max], col = " red ", cex = 2,pch = 20)
+
+## Cp
+plot (model.summary$cp, xlab = " Number of Variables ",ylab = "Cp", type = "l")
+cp_min <- which.min(model.summary$cp)
+print(cp_min)
+points (cp_min, model.summary$cp[cp_min], col = " red ", cex = 2,pch = 20)
+
+## BIC
+bic_min <-  which.min(model.summary$bic)
+print(bic_min)
+plot(model.summary$bic , xlab = " Number of Variables ",ylab = " BIC ", type = "l")
+points (bic_min, model.summary$bic[bic_min], col = " red ", cex = 2,pch = 20)
+par(mfrow = c(1,1))
+```
+
+Both $C_p$ and BIC suggests the model 3 (with $X,X^2,X^3$) is the best model. So we set number of independent variables equals to 3, and check the estimated coefficient.
+
+```{r T1ccccc}
+coef (model.subset ,3 )
+```
+The the estimated parameters are close to the true paramter vector $(1,1,1,1)^T$.
+
+::: {.task .heading style="color: green;"}
+### Task 1 d
+Repeat (c), using forward stepwise selection and also using backwards stepwise selection. How does your answer compare to the results in (c)?
+:::
+
+Forward and backward stepwise selection:
+
+```{r T1d}
+model.fwd <- regsubsets(y~.,data = df,nvmax = 10, method = "forward")
+model.bwd <- regsubsets(y~.,data = df,nvmax = 10, method = "backward")
+summary(model.fwd)
+summary(model.bwd)
+```
+
+```{r T1dd, fig.height=10, fig.width=10}
+fwd.summary = summary(model.fwd)
+bwd.summary = summary(model.bwd)
+# Plot the statistics
+par(mfrow = c(3, 2))
+plot(fwd.summary$cp, xlab = "Subset Size", ylab = "Forward Cp", pch = 20, type = "l")
+points(which.min(fwd.summary$cp), fwd.summary$cp[which.min(fwd.summary$cp)], pch = 4, col = "red", lwd = 7)
+plot(bwd.summary$cp, xlab = "Subset Size", ylab = "Backward Cp", pch = 20, type = "l")
+points(which.min(bwd.summary$cp), bwd.summary$cp[which.min(bwd.summary$cp)], pch = 4, col = "red", lwd = 7)
+plot(fwd.summary$bic, xlab = "Subset Size", ylab = "Forward BIC", pch = 20, 
+    type = "l")
+points(which.min(fwd.summary$bic), fwd.summary$bic[which.min(fwd.summary$bic)], pch = 4, col = "red", lwd = 7)
+plot(bwd.summary$bic, xlab = "Subset Size", ylab = "Backward BIC", pch = 20, 
+    type = "l")
+points(which.min(bwd.summary$bic), bwd.summary$bic[which.min(bwd.summary$bic)], pch = 4, col = "red", lwd = 7)
+plot(fwd.summary$adjr2, xlab = "Subset Size", ylab = "Forward Adjusted R2", 
+    pch = 20, type = "l")
+points(which.max(fwd.summary$adjr2), fwd.summary$adjr2[which.max(fwd.summary$adjr2)], pch = 4, col = "red", lwd = 7)
+plot(bwd.summary$adjr2, xlab = "Subset Size", ylab = "Backward Adjusted R2", 
+    pch = 20, type = "l")
+points(which.max(bwd.summary$adjr2), bwd.summary$adjr2[which.max(bwd.summary$adjr2)], pch = 4, col = "red", lwd = 7)
+par(mfrow = c(1, 1))
+```
+
+```{r T1ddd}
+coef(model.fwd,3)
+coef(model.bwd,4)
+coef (model.subset ,3)
+```
+Here forward stepwise picks $X,X^2,X^3$, which matches the theoretical expectation. Backward stepwise picks 4 variables with $X^5,X^7$.
+
+::: {.task .heading style="color: green;"}
+### Task 1 e
+Now fit a lasso model to the simulated data, again using $X, X^2, ...,X^10$ as predictors. Use cross-validation to select the optimal value of $\lambda$. Create plots of the cross-validation error as a function of $\lambda$. Report the resulting coefficient estimates, and discuss the results obtained. Fit the lasso regression (`alpha = 1` indicates lasso regression, `alpha = 0` for ridge regression)
+:::
+
+```{r T1e, warning=FALSE}
+library(glmnet)
+set.seed(123)
+xmat = model.matrix(y ~ poly(x, 10, raw = T), data = df)[, -1]
+cv.lasso <- cv.glmnet(xmat,y,alpha = 1)
+plot(cv.lasso)
+```
+
+```{r T1ee}
+bestlam <- cv.lasso$lambda.min
+bestlam
+```
+check the estimated coefficients
+```{r T1eee}
+out <- glmnet (xmat,y,alpha = 1)
+lasso.coef <- predict(out , type = "coefficients", s = bestlam)
+lasso.coef
+```
+
+**Conclusion:**  $\lambda = 0.03102019$ gives us the best model from lasso estimation. The best model is $Y=1.0686451587 + 0.91X + 0.66 * X^2 + 1.015 * X^3 + 0.0512X^4 + 0.0008X^6$. The coefficients that were not influential in the prediction were shrunk to zero, which means they were dropped from the model. 
+
+::: {.task .heading style="color: green;"}
+### Task 1 f
+Now generate a response vector Y according to the model $Y = \beta_0 + 1\cdot X^7+\epsilon$
+and perform best subset selection and the lasso. Discuss the results obtained.
+:::
+
+```{r T1f, fig.height=5, fig.width=8, warning=FALSE}
+y.new <- 1 + 1 * df$`7` + e
+df$y = y.new
+cv.lasso <- cv.glmnet(as.matrix(df[,-11]),df$y,alpha = 1)
+plot(cv.lasso)
+bestlam <- cv.lasso$lambda.min
+bestlam
+```
+
+```{r T1ff}
+out <- glmnet (as.matrix(df[,-1]),df$y,alpha = 1)
+lasso.coef <- predict(out , type = "coefficients", s = bestlam)
+lasso.coef
+```
+
+**Conclusion:** Lasso estimation gives us the best model $Y= 0.97 + 0.97X^7$ with $\lambda = 1.528837$.
+
+::: {.task .heading style="color: green;"}
+## Task 2 
+
+### Task 2 a 
+Split the data set into a training set and a test set.
+:::
+```{r T2a}
+library(ISLR2)
+data(College)
+set.seed(123)
+College$Private <- as.integer(College$Private) - 1
+train <- sample(1:nrow(College),as.integer(0.7 * nrow(College)))
+test <- (-train)
+College.train <- College[train,]
+College.test <- College[test,]
+```
+
+::: {.task .heading style="color: green;"}
+### Task 2 b
+
+Fit a linear model using least squares on the training set, and report the test error obtained.
+:::
+
+```{r T2b.1}
+mod.lm <- lm(Apps~.,data = College.train)
+summary(mod.lm)
+```
+The test error we obtained from the linear model(without feature selection)
+```{r T2b.2}
+lm.pred <- predict(mod.lm,newdata = College.test)
+mean((lm.pred - College.test$Apps)^2)
+```
+
+::: {.task .heading style="color: green;"}
+### Task 2 c
+
+Fit a ridge regression model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained.
+:::
+
+```{r T2c.1, fig.height=5, fig.width=8, warning=FALSE}
+idx <- which(colnames(College) == "Apps")
+ridge.mod <- cv.glmnet(as.matrix(College.train[,-idx]), College.train$Apps, alpha = 0)
+plot(ridge.mod)
+bestlam <- ridge.mod$lambda.min
+print(bestlam)
+```
+
+The test error we obtained from the ridge regression model with $\lambda = 314.2524$
+
+```{r T2c.2}
+ridge.pred <- predict(ridge.mod,s = bestlam,newx = as.matrix(College.test[,-idx]))
+mean ((ridge.pred - College.test$Apps)^2)
+```
+
+::: {.task .heading style="color: green;"}
+### Task 2 d
+Fit a lasso model on the training set, with $\lambda$ chosen by crossvalidation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+:::
+
+```{r T2d.1}
+lasso.mod <- cv.glmnet(as.matrix(College.train[,-idx]), College.train$Apps, alpha = 1)
+plot(lasso.mod)
+bestlam <- lasso.mod$lambda.min
+print(bestlam)
+```
+
+```{r T2d.2}
+lasso.coef <- predict (lasso.mod , type = "coefficients",s = bestlam)
+lasso.coef
+```
+
+The test error we obtained from the Lasso regression model with $\lambda = 8.154925$
+
+```{r T2d.3}
+lasso.pred <- predict(lasso.mod,s = bestlam,newx = as.matrix(College.test[,-idx]))
+mean ((lasso.pred - College.test$Apps)^2)
+```
+Lasso regression performance better than ridge regression in the test data.
+
+::: {.task .heading style="color: green;"}
+### Task 2 e
+Fit a PCR model on the training set, with $M$ chosen by crossvalidation. Report the test error obtained, along with the value of $M$ selected by cross-validation
+:::
+
+```{r T2e.1, warning=FALSE}
+library(pls)
+set.seed(123)
+pcr.fit <- pcr(Apps ~ ., data = College ,subset = train, scale = TRUE,validation = "CV")
+summary (pcr.fit)
+```
+
+```{r T2e.2}
+validationplot(pcr.fit , val.type = "MSEP")
+```
+The lowest cross-validation error occuers whtn $M=17$, the test error is
+
+```{r T2e.3}
+pcr.pred <- predict (pcr.fit , College.test[,-idx], ncomp = 17)
+mean ((pcr.pred - College.test$Apps)^2)
+```
+which gets the same result as the first model. Since we used all 17 variables, we did not do any feature selection in the PCR model (Also indicates there are not many overlaps among independent variables).
+
+::: {.task .heading style="color: green;"}
+### Task 2 f
+Fit a PLS model on the training set, with $M$ chosen by crossvalidation. Report the test error obtained, along with the value of $M$ selected by cross-validation.
+:::
+
+```{r T2f.1}
+pls.fit <- plsr(Apps ~ ., data = College ,subset = train, scale = TRUE,validation = "CV")
+summary (pls.fit)
+```
+```{r T2f.2}
+validationplot(pls.fit , val.type = "MSEP")
+```
+There is no big improvement after $M=7$, and the test error is 
+
+```{r T2f.3}
+pls.pred <- predict (pls.fit , College.test[,-idx], ncomp = 7)
+mean ((pls.pred - College.test$Apps)^2)
+```
+
+::: {.task .heading style="color: green;"}
+### Task 2 g
+Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference among the test errors resulting from these five approaches?
+:::
+
+**Comment:**Almost all model gives us the similar result except the ridge regression since it is tend to keep all independent variables. From the linear model, we could see several independent variables are not contribute to error reduction. Therefore, we should not keep them within our model.
+
+::: {.task .heading style="color: green;"}
+## Task 3
+We will now consider the `Boston` housing data set, from the `ISLR2` library.
+
+### Task 3 a
+Based on this data set, provide an estimate for the population mean of `medv.` Call this estimate $\hat{\mu}$.
+:::
+
+```{r T3a, warning=FALSE}
+library(MASS)
+data(Boston)
+summary(Boston$medv)
+medv_mu <- mean(Boston$medv)
+medv_mu
+```
+
+::: {.task .heading style="color: green;"}
+### Task 3 b
+Provide an estimate of the standard error of $\hat{\mu}$. Interpret this result.
+:::
+
+According to the central limit theorem, the sample mean should follow the distribution of $\mu=\mu_{true}$ and $sd = sd_{sample}/\sqrt{n}$. standard error indicates what's the most likely range of true value deviates from the observed value. 
+Therefore, the true median value of owner-occupied homes have highly chance within the range $\{22.53-0.408,22.53+0.408\}$
+
+```{r T3b}
+sd(Boston$medv) / sqrt(length(Boston$medv))
+```
+
+::: {.task .heading style="color: green;"}
+### Task 3 c
+Now estimate the standard error of $\hat{\mu}$ using the bootstrap. How does this compare to your answer from (b)?
+:::
+
+```{r T3c}
+mean.fn <- function(data, index){
+  mean(data[index])
+}
+
+result <- boot::boot(Boston$medv,mean.fn,R=1000)
+result
+```
+
+::: {.task .heading style="color: green;"}
+### Task 3 d
+Based on your bootstrap estimate from (c), provide a 95 % confidence interval for the mean of `medv.` Compare it to the results obtained using `t.test(Boston$medv)`.
+:::
+
+```{r T3d.1}
+t.test(Boston$medv)
+```
+
+```{r T3d.2}
+quantile(result$t,probs = c(0.025,0.975))
+```
+**Conclusion:** the confidence interval of the original data set(`t.test`) is more wider than the one from bootstrap.
+
+::: {.task .heading style="color: green;"}
+### Task 3 e
+
+Based on this data set, provide an estimate, $\hat{\mu}_{med}$, for the median value of `medv` in the population.
+:::
+
+```{r T3e}
+median_medv <- median(Boston$medv)
+median_medv
+```
+
+::: {.task .heading style="color: green;"}
+### Task 3 f
+We now would like to estimate the standard error of $\hat{\mu}_{med}$. Unfortunately, there is no simple formula for computing the standard error of the median. Instead, estimate the standard error of the median using the bootstrap. Comment on your findings.
+:::
+
+```{r T3f}
+my_median <- function(data,index){
+  return(median(data[index]))
+}
+median_result <- boot::boot(Boston$medv,my_median,R=1000)
+median_result
+```
+The expectation of median is 21.2, and standard error is 0.385
+
+::: {.task .heading style="color: green;"}
+### Task 3 g
+Based on this data set, provide an estimate for the tenth percentile of medv in Boston census tracts. Call this quantity $\hat{\mu}_{0.1}$. (You can use the quantile() function.)
+:::
+
+```{r T3g}
+quantile(Boston$medv,0.1)
+```
+
+::: {.task .heading style="color: green;"}
+### Task 3 h
+Use the bootstrap to estimate the standard error of $\hat{\mu}_{0.1}$. Comment on your findings.
+:::
+
+$se = 0.49$, therefore there is a highly chance that $u_{0.1} \in\{12.75-0.49,12.75+0.49\}$
+
+```{r T3h}
+my_quantile <- function(data,index){
+  return(quantile(data[index],0.1))
+}
+quantile_result <- boot::boot(Boston$medv,my_quantile,R=1000)
+quantile_result
+```
+
+
+
+

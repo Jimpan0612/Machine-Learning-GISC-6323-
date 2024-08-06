@@ -1,0 +1,241 @@
+---
+title: "Lab04: Support Vector Machines" 
+author: "Sample Answer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, setup, include=FALSE, echo=TRUE}
+knitr::opts_chunk$set(
+  error = TRUE,         
+  fig.align = 'center', 
+  out.width = '60%',    
+  warning = FALSE,      
+  message = FALSE,      
+  size = 'small',       
+  tidy = FALSE         
+)
+library(ISLR2)
+```
+
+::: {.task .heading style="color: green;"}
+# Support Vector Machines [10 points]
+
+
+## Task 1
+
+You will answer an applied exercise 5 in James et al., 2021. An Introduction to Statistical Learning with Application in R. pages 399 and 400. Please follow the sequence of tasks/questions in the exercises. [5 points] 
+
+We have seen that we can fit an SVM with a non-linear kernel in order to perform classification using a non-linear decision boundary. We will now see that we can also obtain a *non-linear decision boundary* by performing *logistic regression* using *non-linear transformations* of the features.
+
+### [a]
+Generate a data set with $n = 500$ and $p = 2$, such that the observations belong to two classes with a quadratic decision boundary between them. 
+:::
+
+```{r 1a}
+set.seed(123)
+x1 <- runif(500) - 0.5
+x2 <- runif(500) - 0.5
+y <- 1 * (x1 ^2 - x2^2 >0)
+```
+
+::: {.task .heading style="color: green;"}
+### [b]
+
+Plot the observations, colored according to their class labels. Your plot should display X1 on the x-axis, and X2 on the yaxis
+:::
+
+```{r 1b}
+library(ggplot2)
+df <- data.frame(x1,x2,"class" = as.factor(y))
+ggplot(df,aes(x1,x2)) + 
+  geom_point(aes(shape = class,color = class), size = 3, alpha = 0.75)
+```
+
+::: {.task .heading style="color: green;"}
+### [c]
+
+Fit a *logistic regression* model to the data, using X1 and X2 as predictors 
+:::
+
+```{r 1c}
+set.seed(123)
+train <- sample(1:nrow(df),as.integer(nrow(df) * 0.7))
+full.log.model <- glm(class ~ ., df,subset = train, family = binomial)
+summary(full.log.model)
+```
+
+::: {.task .heading style="color: green;"}
+### [d]
+
+Apply this model to the training data in order to obtain a *predicted class* label for each training observation. *Plot the observations*, colored according to the predicted class labels. The decision boundary should be linear.
+:::
+
+```{r 1d}
+contrasts(df$class)
+```
+
+
+```{r 1d.1}
+library(ggplot2)
+pred_class <- as.factor(ifelse(fitted(full.log.model,type = "response")>0.5,"1","0"))
+ggplot(df[train,],aes(x1,x2)) + 
+  geom_point(aes(shape = pred_class,color = pred_class), size = 3, alpha = 0.75)
+```
+
+::: {.task .heading style="color: green;"}
+### [e]
+
+Now fit a logistic regression model to the data using non-linear functions of X1 and X2 as predictors (e.g. $X^2_1 , X_1×X_2, log(X_2)$, and so forth).
+:::
+
+```{r 1e, message=FALSE, warning=FALSE}
+x1_quad <- df$x1^2
+x2_quad <- df$x2^2
+x1.x2 <- df$x1 * df$x2
+log.mod.2 <- glm(class ~ . + x1_quad + x2_quad + x1.x2, df,subset = train, family = binomial)
+summary(log.mod.2)
+car::vif(log.mod.2)
+```
+Note: None of the terms is significant because their underlying features are highly multicollinear.
+
+::: {.task .heading style="color: green;"}
+### [f]
+
+Apply this model to the *training* data in order to obtain a *predicted class* label for each training observation. Plot the observations, colored according to the *predicted class* labels. The decision boundary should be obviously non-linear. If it is not, then repeat (a)-(e) until you come up with an example in which the predicted class labels are obviously non-linear.
+:::
+
+```{r 1f}
+library(ggplot2)
+pred_class <- as.factor(ifelse(fitted(log.mod.2,type = "response")>0.5,"1","0"))
+ggplot(df[train,],aes(x1,x2)) + 
+  geom_point(aes(shape = pred_class,color = pred_class), size = 3, alpha = 0.75)
+```
+
+::: {.task .heading style="color: green;"}
+### [g]
+
+Fit a *support vector classifier* to the data with X1 and X2 as predictors. Obtain a class prediction for each *training* observation. Plot the observations, colored according to the predicted class labels.
+:::
+
+```{r 1g}
+library(e1071)
+set.seed(1)
+svm.mod.1 <- svm(class ~ ., df,subset = train, kernel = "linear")
+svm.pred <- fitted(svm.mod.1)
+
+ggplot(df[train,],aes(x1,x2)) +
+ geom_point(aes(shape = svm.pred,color = svm.pred), size = 3, alpha = 0.75)
+
+```
+
+
+::: {.task .heading style="color: green;"}
+### [h]
+
+Fit a SVM using a non-linear kernel to the data. Obtain a class prediction for each *training* observation. Plot the observations, colored according to the *predicted class* labels.
+:::
+
+```{r 1h}
+set.seed(1)
+svm.mod.2 <- svm(class~., data=df[train,], kernel="radial")         
+svm.pred.2 <- fitted(svm.mod.2)
+
+ggplot(df[train,],aes(x1,x2)) +
+ geom_point(aes(shape = svm.pred.2,color = svm.pred.2), size = 3, alpha = 0.75)
+```
+
+
+::: {.task .heading style="color: green;"}
+### [i]
+Comment on your results.
+:::
+
+From observation it is seen that, when we have non-linearly distributed observations, the non-linear kernel SVM and logistic regression with added quadratic terms perform better at determining boundaries than nonlinear models. Nonlinear kernel SVM and logistic regression with added quadratic terms produce similar results. But in comparison, the kernel SVM is better as the process is less complicated. 
+
+::: {.task .heading style="color: green;"}
+## Task 2
+
+For the following tasks continue working with the `credit.csv` data set to predict the default probabilities. [5 points]  
+
+
+### [a] 
+Split the data into a stratified training data set with 70% of the observations and a test data set with the remaining 30% of the observations. 
+:::
+
+```{r 2a}
+credit <- read.csv('credit.csv')
+creditSplit <- rsample::initial_split(credit, breaks=7, prop=0.7, 
+strata="default")
+df_train <- rsample::training(creditSplit)
+df_test <- rsample::testing(creditSplit)
+
+```
+
+::: {.task .heading style="color: green;"}
+### [b] 
+Use a radial kernel support vector classifier. Identify with cross-evaluation the “optimal” cost parameter. 
+:::
+
+```{r 2b, message=FALSE, warning=FALSE}
+library(caret)
+library(ggplot2)
+
+# Tune an SVM
+set.seed(1)  # for reproducibility
+library(caret)
+# Control params for SVM
+ctrl <- trainControl(
+ method = "cv", 
+ number = 10, 
+ classProbs = TRUE, 
+ summaryFunction = twoClassSummary # also needed for AUC/ROC
+)
+# Tune an SVM
+set.seed(1) # for reproducibility
+credit_svm_auc <- train(
+ default ~ ., 
+ data = df_train,
+ method = "svmRadial", 
+ preProcess = c("center", "scale"), 
+ metric = "ROC", # area under ROC curve (AUC) 
+ trControl = ctrl,
+ tuneLength = 10
+)
+# Plot results
+ggplot(credit_svm_auc) + theme_light()
+
+```
+
+The optimal cost is:
+```{r 2b.2, message=FALSE, warning=FALSE}
+credit_svm_auc$bestTune
+```
+
+::: {.task .heading style="color: green;"}
+### [c] 
+Evaluate your optimal model with the confusion matrix for the test dataset and the ROC curve including the AUC.
+:::
+
+```{r 2c.1, message=FALSE, warning=FALSE}
+confusionMatrix(predict(credit_svm_auc,df_test),as.factor(df_test$default))
+
+```
+
+
+```{r 2c.2}
+library(pROC)
+pred_default_prob <- predict(credit_svm_auc,df_test,type = "prob")
+roc_1 <- roc(as.factor(df_test$default), pred_default_prob[,"yes"])
+plot(roc_1, col="red", lwd=2,legacy.axes=TRUE)
+title(main = paste('Area under the curve: ',auc(roc_1)))
+```
+
+Frustratingly, the fit of the kernel support vector machine falls substantially below the fit observed for the kNN and logistic regression model observed in Lab01.
+
+
+
+
+
+
+
