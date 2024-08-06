@@ -95,4 +95,4 @@ This repository contains the lab assignments for the Machine Learning course (GI
 
 ---
 
-This README provides an overview of the lab assignments for the Machine Learning course. Each lab focuses on different aspects of machine learning and data analysis, and the associated files include detailed reports and scripts to implement the methodologies discussed.
+
