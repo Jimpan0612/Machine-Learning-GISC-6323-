@@ -1,4 +1,4 @@
-# Machine Learning GISC 6323
+# Machine Learning (GISC 6323)
 
 ## Course Overview
 
