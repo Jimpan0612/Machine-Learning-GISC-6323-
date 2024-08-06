@@ -4,7 +4,7 @@
 
 This course, taught by Dr. Michael Tiefelsdorf, focuses on the application of machine learning techniques to socio-economic and georeferenced data. Students learn both supervised and unsupervised learning methods, model evaluation, and the ethical implications of machine learning.
 
-# Machine Learning Course Labs
+## Machine Learning Course Labs
 
 This repository contains the lab assignments for the Machine Learning course (GISC 6323). Each lab focuses on different aspects of machine learning and data analysis. Below are the descriptions of each lab along with the associated files and key activities.
 
